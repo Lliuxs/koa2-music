@@ -4,36 +4,46 @@ const views = require('koa-views')
 const json = require('koa-json')
 const onerror = require('koa-onerror')
 const bodyparser = require('koa-bodyparser')
-const koaBody = require('koa-body') // 处理文件
 const logger = require('koa-logger')
 const cors = require('koa2-cors')
-const getAccessToken = require('./utils/getAccessToken.js')
+const redis = require('redis')
+const getAccessToken = require('./utils/getAccessToken-redis')
+const client = redis.createClient(6379, "localhost")
+const options = {client: client, db: 1}
+const session = require('koa-generic-session')
+const redisStore = require('koa-redis')({ options })
+
+
 const index = require('./routes/index')
 const users = require('./routes/users')
-const music = require('./routes/music')
 const blog = require('./routes/blog')
-const swiper = require('./routes/swiper')
-const ENV = 'lxs' // 环境id不是环境名称
+const ENV = 'test'
 
 // error handler
-// onerror(app)
+onerror(app)
 
 // 跨域
 app.use(cors({
-  origin: '*'
+  origin: ['http://localhost:9528'],
+  credentials: true
 }))
+
+
+app.keys = ['keys', 'music'];
+
+app.use(async (ctx, next) => {
+  await getAccessToken()
+  await next()
+})
+
+app.use(session({
+  store: redisStore
+}));
 
 
 app.use(bodyparser({
   enableTypes: ['json', 'form', 'text']
 }))
-
-app.use(koaBody({
-  multipart: true,
-  formidable: {
-    maxFileSize: 200 * 1024 * 1024 // 设置上传文件大小最大限制，默认2M
-  }
-}));
 
 app.use(json())
 
@@ -45,10 +55,8 @@ app.use(views(__dirname + '/views', {
   extension: 'pug'
 }))
 
-app.use(async (ctx, next) => {
-  const access_token = await getAccessToken()
+app.use(async (ctx, next)=>{
   ctx.state.env = ENV
-  ctx.state.access_token = access_token
   await next()
 })
 
@@ -63,13 +71,11 @@ app.use(async (ctx, next) => {
 // routes
 app.use(index.routes(), index.allowedMethods())
 app.use(users.routes(), users.allowedMethods())
-app.use(music.routes(), music.allowedMethods())
 app.use(blog.routes(), blog.allowedMethods())
-app.use(swiper.routes(), swiper.allowedMethods())
 
 // error-handling
-// app.on('error', (err, ctx) => {
-//   console.error('server error', err, ctx)
-// });
+app.on('error', (err, ctx) => {
+  console.error('server error', err, ctx)
+});
 
 module.exports = app
